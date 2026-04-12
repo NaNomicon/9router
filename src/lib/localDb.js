@@ -71,6 +71,8 @@ const defaultData = {
     outboundProxyUrl: "",
     outboundNoProxy: "",
     mitmRouterBaseUrl: DEFAULT_MITM_ROUTER_BASE,
+    ttftTimeoutMs: 0,
+    ttftCooldownMs: 15000,
   },
   pricing: {} // NEW: pricing configuration
 };
@@ -108,6 +110,8 @@ function cloneDefaultData() {
       outboundProxyUrl: "",
       outboundNoProxy: "",
       mitmRouterBaseUrl: DEFAULT_MITM_ROUTER_BASE,
+      ttftTimeoutMs: 0,
+      ttftCooldownMs: 15000,
     },
     pricing: {},
   };
