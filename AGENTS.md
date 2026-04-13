@@ -142,3 +142,20 @@ cd cloud && wrangler deploy
 - **Default password is `123456`** — `JWT_SECRET` and `INITIAL_PASSWORD` must be changed in production.
 - **Env vars**: `DATA_DIR`, `JWT_SECRET`, `INITIAL_PASSWORD`, `API_KEY_SECRET`, `ENABLE_REQUEST_LOGS`, `NEXT_PUBLIC_BASE_URL`, `NEXT_PUBLIC_CLOUD_URL`, `HTTP_PROXY`/`HTTPS_PROXY`.
 - **TTFT Timeout (fork-only)** — Not present in upstream. A configurable time-to-first-token timeout that aborts slow streaming providers and soft-locks the account. Settings: `ttftTimeoutMs` (default 0 = disabled) and `ttftCooldownMs` (default 15000ms). Code paths: `open-sse/handlers/chatCore.js` (TTFT race + `raceTtftDeadline` helper), `open-sse/handlers/chatCore/streamingHandler.js` (deferred `onRequestSuccess`), `open-sse/services/accountFallback.js` (`ttft_timeout` error handler), `src/sse/handlers/chat.js` (settings wiring), `src/sse/services/auth.js` (options threading), `src/lib/localDb.js` (schema defaults), `src/app/(dashboard)/dashboard/profile/page.js` (UI controls). **Merge guidance**: When pulling upstream changes, check for conflicts in `chatCore.js` (around the `handleStreamingResponse` call site), `streamingHandler.js` (around line 43), `accountFallback.js` (top of `checkFallbackError`), `chat.js` (around `handleChatCore` call), and `auth.js` (`markAccountUnavailable` signature).
+
+## FORK BRANCH WORKFLOW
+
+- **`master` is the upstream-sync branch** — keep it close to `decolua/9router` and avoid developing fork features directly on it.
+- **`dev` is the personal integration branch** — this branch may contain all locally desired fork features, even if upstream PRs are still open or never merged.
+- **Upstreamable work always starts from clean upstream-sync state** — create one feature branch per upstream PR from `master`, not from `dev`.
+- **Merge direction**: feature branch → upstream PR, and separately feature branch → `dev` for local use. Do not branch upstream PR work off `dev` unless the PR intentionally depends on unmerged local work.
+- **Use separate worktrees** for active long-lived branches. Current intended layout:
+  - `9router/` → `master`
+  - `9router-dev/` → `dev`
+  - dedicated per-feature worktrees (for example `9router-ttft-pr/`, `9router-provider-disable-pr/`) for upstream PR branches
+- **Branch naming guidance**:
+  - personal integration: `dev`
+  - upstream PR branches: `feature/<slug>` or `agent/<agent>/<slug>`
+  - local-only experiments: `local/<slug>`
+- **Cherry-pick or merge into `dev` deliberately** after a feature branch is validated, so `dev` remains the branch that represents “what I actually run”.
+- **Keep upstream PR branches minimal** — exclude `.sisyphus` planning artifacts, local-only docs, and unrelated fork changes.
