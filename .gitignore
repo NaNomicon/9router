@@ -69,3 +69,4 @@ ecosystem.config.*
 
 # sisyphus planning artifacts
 .sisyphus/
+.playwright-mcp/
