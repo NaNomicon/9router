@@ -3,31 +3,40 @@
 import { useState } from "react";
 import PropTypes from "prop-types";
 import { Button } from "@/shared/components";
-function CompatibleModelRow({ modelId, fullModel, copied, onCopy, onDeleteAlias, onTest, testStatus, isTesting }) {
-  const borderColor = testStatus === "ok"
+function CompatibleModelRow({ modelId, fullModel, copied, onCopy, onDeleteAlias, onTest, testStatus, isTesting, isDisabled, onDisable, onEnable, isToggling }) {
+  const borderColor = isDisabled
+    ? "border-black/[0.06] dark:border-white/[0.06]"
+    : testStatus === "ok"
     ? "border-green-500/40"
     : testStatus === "error"
     ? "border-red-500/40"
     : "border-border";
 
-  const iconColor = testStatus === "ok"
+  const iconColor = isDisabled
+    ? undefined
+    : testStatus === "ok"
     ? "#22c55e"
     : testStatus === "error"
     ? "#ef4444"
     : undefined;
 
   return (
-    <div className={`flex items-center gap-3 p-3 rounded-lg border ${borderColor} hover:bg-sidebar/50`}>
+    <div className={`group flex items-center gap-3 p-3 rounded-lg border ${borderColor} hover:bg-sidebar/50 ${isDisabled ? "opacity-50" : ""}`}>
       <span
-        className="material-symbols-outlined text-base text-text-muted"
+        className={`material-symbols-outlined text-base ${isDisabled ? "text-text-muted" : "text-text-muted"}`}
         style={iconColor ? { color: iconColor } : undefined}
       >
-        {testStatus === "ok" ? "check_circle" : testStatus === "error" ? "cancel" : "smart_toy"}
+        {isDisabled ? "block" : testStatus === "ok" ? "check_circle" : testStatus === "error" ? "cancel" : "smart_toy"}
       </span>
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium truncate">{modelId}</p>
-        <div className="flex items-center gap-1 mt-1">
+        <p className={`text-sm font-medium truncate ${isDisabled ? "line-through text-text-muted" : ""}`}>{modelId}</p>
+        <div className="flex items-center gap-1 mt-1 flex-wrap">
           <code className="text-xs text-text-muted font-mono bg-sidebar px-1.5 py-0.5 rounded">{fullModel}</code>
+          {isDisabled && (
+            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-black/5 dark:bg-white/10 text-text-muted">
+              disabled
+            </span>
+          )}
           <div className="relative group/btn">
             <button
               onClick={() => onCopy(fullModel, `model-${modelId}`)}
@@ -41,7 +50,7 @@ function CompatibleModelRow({ modelId, fullModel, copied, onCopy, onDeleteAlias,
               {copied === `model-${modelId}` ? "Copied!" : "Copy"}
             </span>
           </div>
-          {onTest && (
+          {!isDisabled && onTest && (
             <div className="relative group/btn">
               <button
                 onClick={onTest}
@@ -59,18 +68,37 @@ function CompatibleModelRow({ modelId, fullModel, copied, onCopy, onDeleteAlias,
           )}
         </div>
       </div>
-      <button
-        onClick={onDeleteAlias}
-        className="p-1 hover:bg-red-50 rounded text-red-500"
-        title="Remove model"
-      >
-        <span className="material-symbols-outlined text-sm">delete</span>
-      </button>
+      {(onDisable || onEnable) && (
+        <div className="relative group/btn">
+          <button
+            onClick={isDisabled ? onEnable : onDisable}
+            disabled={isToggling}
+            className={`p-1 rounded transition-opacity ${isToggling ? "opacity-50 cursor-not-allowed" : "opacity-0 group-hover:opacity-100"} ${isDisabled ? "hover:bg-green-500/10 text-text-muted hover:text-green-600" : "hover:bg-orange-500/10 text-text-muted hover:text-orange-600"}`}
+            title={isDisabled ? "Enable model" : "Disable model"}
+          >
+            <span className="material-symbols-outlined text-sm">
+              {isToggling ? "progress_activity" : isDisabled ? "check_circle" : "block"}
+            </span>
+          </button>
+          <span className="pointer-events-none absolute top-7 right-0 text-[10px] text-text-muted whitespace-nowrap opacity-0 group-hover/btn:opacity-100 transition-opacity">
+            {isDisabled ? "Enable" : "Disable"}
+          </span>
+        </div>
+      )}
+      {!isDisabled && (
+        <button
+          onClick={onDeleteAlias}
+          className="p-1 hover:bg-red-50 dark:hover:bg-red-500/10 rounded text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+          title="Remove model"
+        >
+          <span className="material-symbols-outlined text-sm">delete</span>
+        </button>
+      )}
     </div>
   );
 }
 
-export default function CompatibleModelsSection({ providerStorageAlias, providerDisplayAlias, modelAliases, copied, onCopy, onSetAlias, onDeleteAlias, connections, isAnthropic }) {
+export default function CompatibleModelsSection({ providerStorageAlias, providerDisplayAlias, modelAliases, copied, onCopy, onSetAlias, onDeleteAlias, connections, isAnthropic, disabledModels, onDisableModel, onEnableModel, togglingModelId }) {
   const [newModel, setNewModel] = useState("");
   const [adding, setAdding] = useState(false);
   const [importing, setImporting] = useState(false);
@@ -226,6 +254,10 @@ export default function CompatibleModelsSection({ providerStorageAlias, provider
               onTest={connections.length > 0 ? () => handleTestModel(modelId) : undefined}
               testStatus={modelTestResults[modelId]}
               isTesting={testingModelId === modelId}
+              isDisabled={(disabledModels || []).includes(modelId)}
+              onDisable={onDisableModel ? () => onDisableModel(modelId) : undefined}
+              onEnable={onEnableModel ? () => onEnableModel(modelId) : undefined}
+              isToggling={togglingModelId === modelId}
             />
           ))}
         </div>
@@ -247,4 +279,8 @@ CompatibleModelsSection.propTypes = {
     isActive: PropTypes.bool,
   })).isRequired,
   isAnthropic: PropTypes.bool,
+  disabledModels: PropTypes.arrayOf(PropTypes.string),
+  onDisableModel: PropTypes.func,
+  onEnableModel: PropTypes.func,
+  togglingModelId: PropTypes.string,
 };
