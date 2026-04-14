@@ -121,8 +121,8 @@ export default function APIPageClient({ machineId }) {
           // Ping once to verify reachable
           const healthUrl = `${tPublicUrl || tUrl}/api/health`;
           try {
-            const ping = await fetch(healthUrl, { mode: "no-cors", cache: "no-store" });
-            if (ping.ok || ping.type === "opaque") {
+            const ping = await fetch(healthUrl, { cache: "no-store" });
+            if (ping.ok) {
               setTunnelEnabled(true);
             } else {
               pingTunnelHealth(tPublicUrl || tUrl);
@@ -626,10 +626,19 @@ export default function APIPageClient({ machineId }) {
                 </button>
               </>
             ) : tunnelLoading ? (
-              <div className="flex-1 flex items-center gap-2 px-3 py-1.5 rounded border border-border bg-input text-sm text-text-muted">
-                <span className="material-symbols-outlined animate-spin text-sm">progress_activity</span>
-                {tunnelProgress || "Creating tunnel..."}
-              </div>
+              <>
+                <div className="flex-1 flex items-center gap-2 px-3 py-1.5 rounded border border-border bg-input text-sm text-text-muted">
+                  <span className="material-symbols-outlined animate-spin text-sm">progress_activity</span>
+                  {tunnelProgress || "Creating tunnel..."}
+                </div>
+                <button
+                  onClick={() => { setTunnelLoading(false); setTunnelProgress(""); }}
+                  className="p-2 hover:bg-red-500/10 rounded text-red-500 transition-colors shrink-0"
+                  title="Stop"
+                >
+                  <span className="material-symbols-outlined text-[18px]">power_settings_new</span>
+                </button>
+              </>
             ) : tunnelStatus?.type === "error" ? (
               <>
                 <div className="flex-1 flex items-center gap-2 px-3 py-1.5 rounded border border-red-300 dark:border-red-800 bg-red-500/5 text-sm text-red-600 dark:text-red-400">
@@ -639,10 +648,19 @@ export default function APIPageClient({ machineId }) {
                 <Button size="sm" icon="cloud_upload" onClick={() => setShowEnableTunnelModal(true)}>Enable</Button>
               </>
             ) : tunnelChecking ? (
-              <div className="flex items-center gap-2 px-3 py-1.5 text-sm text-text-muted">
-                <span className="material-symbols-outlined animate-spin text-sm">progress_activity</span>
-                Checking...
-              </div>
+              <>
+                <div className="flex-1 flex items-center gap-2 px-3 py-1.5 rounded border border-border bg-input text-sm text-text-muted">
+                  <span className="material-symbols-outlined animate-spin text-sm">progress_activity</span>
+                  Checking...
+                </div>
+                <button
+                  onClick={() => setTunnelChecking(false)}
+                  className="p-2 hover:bg-red-500/10 rounded text-red-500 transition-colors shrink-0"
+                  title="Stop"
+                >
+                  <span className="material-symbols-outlined text-[18px]">power_settings_new</span>
+                </button>
+              </>
             ) : (
               <Button
                 size="sm"
@@ -683,10 +701,19 @@ export default function APIPageClient({ machineId }) {
                 </button>
               </>
             ) : (tsLoading || tsConnecting) ? (
-              <div className="flex-1 flex items-center gap-2 px-3 py-1.5 rounded border border-border bg-input text-sm text-text-muted">
-                <span className="material-symbols-outlined animate-spin text-sm">progress_activity</span>
-                {tsProgress || "Connecting..."}
-              </div>
+              <>
+                <div className="flex-1 flex items-center gap-2 px-3 py-1.5 rounded border border-border bg-input text-sm text-text-muted">
+                  <span className="material-symbols-outlined animate-spin text-sm">progress_activity</span>
+                  {tsProgress || "Connecting..."}
+                </div>
+                <button
+                  onClick={() => { setTsLoading(false); setTsConnecting(false); setTsProgress(""); }}
+                  className="p-2 hover:bg-red-500/10 rounded text-red-500 transition-colors shrink-0"
+                  title="Stop"
+                >
+                  <span className="material-symbols-outlined text-[18px]">power_settings_new</span>
+                </button>
+              </>
             ) : tsStatus?.type === "error" ? (
               <>
                 <div className="flex-1 flex items-center gap-2 px-3 py-1.5 rounded border border-red-300 dark:border-red-800 bg-red-500/5 text-sm text-red-600 dark:text-red-400">
@@ -742,7 +769,7 @@ export default function APIPageClient({ machineId }) {
             />
             <div className="flex items-center gap-1.5">
               <p className="font-medium text-sm">Allow dashboard access via tunnel</p>
-              <Tooltip text="When enabled, the dashboard can be accessed through your tunnel or Tailscale URL without requiring login. Only enable if you trust everyone who can reach your tunnel URL." />
+              <Tooltip text="When enabled, the dashboard can be accessed through your tunnel or Tailscale URL (login still required). When disabled, dashboard access via tunnel/Tailscale is completely blocked." />
             </div>
           </div>
         )}
