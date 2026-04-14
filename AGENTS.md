@@ -159,3 +159,14 @@ cd cloud && wrangler deploy
   - local-only experiments: `local/<slug>`
 - **Cherry-pick or merge into `dev` deliberately** after a feature branch is validated, so `dev` remains the branch that represents “what I actually run”.
 - **Keep upstream PR branches minimal** — exclude `.sisyphus` planning artifacts, local-only docs, and unrelated fork changes.
+- **Do not rely on merge-vs-rebase policy to protect fork features** — both strategies can drop or regress local behavior when upstream refactors overlapping code. Protection comes from branch structure and verification, not from history shape.
+- **Every fork-only feature must retain a canonical feature branch** even after it lands in `dev`. Treat `dev` as the integration result, not as the only copy of local feature history.
+- **Prefer replayable fork features** — keep local-only changes in small, focused commits with narrow blast radius so they can be cherry-picked, replayed, or manually ported after upstream refactors.
+- **After every upstream sync into `dev`, run a fork regression check** for each active fork-only feature. Verify both history and behavior:
+  - confirm the feature branch tip is still reachable from `dev` when that branch is meant to be integrated;
+  - grep for the key codepaths/files that implement the feature;
+  - verify the user-visible behavior or API path still exists.
+- **If upstream refactors the same area, port the feature intentionally** — do not assume a clean merge means the behavior survived. Re-apply the feature onto the new architecture if necessary, then verify before considering the sync complete.
+- **Current fork-only feature checklist**:
+  - **TTFT timeout** — verify `ttftTimeoutMs` / `ttftCooldownMs` wiring still exists in `open-sse/handlers/chatCore.js`, `open-sse/handlers/chatCore/streamingHandler.js`, `open-sse/services/accountFallback.js`, `src/sse/handlers/chat.js`, `src/sse/services/auth.js`, `src/lib/localDb.js`, and `src/app/(dashboard)/dashboard/profile/page.js`.
+  - **Provider model disable** — verify disabled-model behavior still exists in `src/lib/localDb.js`, `src/app/api/providers/[id]/route.js`, `src/app/api/v1/models/route.js`, `src/shared/components/ModelSelectModal.js`, `src/sse/handlers/chat.js`, and the provider page UI components under `src/app/(dashboard)/dashboard/providers/[id]/`.
