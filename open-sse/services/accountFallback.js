@@ -1,4 +1,5 @@
 import { ERROR_RULES, BACKOFF_CONFIG, TRANSIENT_COOLDOWN_MS } from "../config/errorConfig.js";
+import { buildTtftFallbackResult, isTtftTimeoutError } from "@/fork/ttft/error";
 
 /**
  * Calculate exponential backoff cooldown for rate limits (429)
@@ -24,8 +25,8 @@ export function checkFallbackError(status, errorText, backoffLevel = 0, options 
     ? (typeof errorText === "string" ? errorText : JSON.stringify(errorText)).toLowerCase()
     : "";
 
-  if (lowerError.includes("ttft_timeout")) {
-    return { shouldFallback: true, cooldownMs: options?.ttftCooldownMs ?? 15000 };
+  if (isTtftTimeoutError(lowerError)) {
+    return buildTtftFallbackResult(options);
   }
 
   for (const rule of ERROR_RULES) {
