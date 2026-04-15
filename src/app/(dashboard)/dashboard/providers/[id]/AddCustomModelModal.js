@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import PropTypes from "prop-types";
 import { Button, Modal } from "@/shared/components";
+import { getDualModeTestError, mapDualModeTestResult } from "@/fork/modelTest";
 
 export default function AddCustomModelModal({ isOpen, providerAlias, providerDisplayAlias, onSave, onClose }) {
   const [modelId, setModelId] = useState("");
@@ -26,11 +27,8 @@ export default function AddCustomModelModal({ isOpen, providerAlias, providerDis
         body: JSON.stringify({ model: `${providerAlias}/${modelId.trim()}` }),
       });
       const data = await res.json();
-      setTestStatus({
-        nonStream: data.nonStream?.ok ? "ok" : "error",
-        stream: data.stream?.ok ? "ok" : "error"
-      });
-      setTestError(data.nonStream?.error || data.stream?.error || "");
+      setTestStatus(mapDualModeTestResult(data));
+      setTestError(getDualModeTestError(data));
     } catch (err) {
       setTestStatus({ nonStream: "error", stream: "error" });
       setTestError(err.message);

@@ -6,6 +6,7 @@ import { Card, Button, Modal } from "@/shared/components";
 import { getModelsByProviderId } from "@/shared/constants/models";
 import { getProviderAlias } from "@/shared/constants/providers";
 import { useCopyToClipboard } from "@/shared/hooks/useCopyToClipboard";
+import { getDualModeTestError, hasAnyPassingTest, mapDualModeTestResult } from "@/fork/modelTest";
 
 // ── ModelRow ───────────────────────────────────────────────────
 export function ModelRow({ model, fullModel, copied, onCopy, testStatus, isCustom, isFree, onDeleteAlias, onTest, isTesting }) {
@@ -181,14 +182,8 @@ export default function ModelsCard({ providerId, kindFilter }) {
         body: JSON.stringify({ model: `${providerAlias}/${modelId}`, kind: kindFilter }),
       });
       const data = await res.json();
-      setModelTestResults((prev) => ({ 
-        ...prev, 
-        [modelId]: {
-          nonStream: data.nonStream?.ok ? "ok" : "error",
-          stream: data.stream?.ok ? "ok" : "error"
-        }
-      }));
-      setTestError(data.nonStream?.ok || data.stream?.ok ? "" : (data.nonStream?.error || data.stream?.error || "Model not reachable"));
+      setModelTestResults((prev) => ({ ...prev, [modelId]: mapDualModeTestResult(data) }));
+      setTestError(hasAnyPassingTest(data) ? "" : (getDualModeTestError(data) || "Model not reachable"));
     } catch {
       setModelTestResults((prev) => ({ ...prev, [modelId]: { nonStream: "error", stream: "error" } }));
       setTestError("Network error");

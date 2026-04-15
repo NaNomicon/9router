@@ -18,6 +18,7 @@ import EditCompatibleNodeModal from "./EditCompatibleNodeModal";
 import AddCustomModelModal from "./AddCustomModelModal";
 import { applyDisabledModelsToConnections, disableProviderModel, enableProviderModel } from "@/fork/providerModelDisable/mutations";
 import { createDisabledModelsSet, getDisabledModels } from "@/fork/providerModelDisable/state";
+import { getDualModeTestError, hasAnyPassingTest, mapDualModeTestResult } from "@/fork/modelTest";
 
 export default function ProviderDetailPage() {
   const params = useParams();
@@ -562,10 +563,10 @@ export default function ProviderDetailPage() {
         body: JSON.stringify({ model: `${providerStorageAlias}/${modelId}` }),
       });
       const data = await res.json();
-      setModelTestResults((prev) => ({ ...prev, [modelId]: data.ok ? "ok" : "error" }));
-      setModelsTestError(data.ok ? "" : (data.error || "Model not reachable"));
+      setModelTestResults((prev) => ({ ...prev, [modelId]: mapDualModeTestResult(data) }));
+      setModelsTestError(hasAnyPassingTest(data) ? "" : (getDualModeTestError(data) || "Model not reachable"));
     } catch {
-      setModelTestResults((prev) => ({ ...prev, [modelId]: "error" }));
+      setModelTestResults((prev) => ({ ...prev, [modelId]: { nonStream: "error", stream: "error" } }));
       setModelsTestError("Network error");
     } finally {
       setTestingModelId(null);

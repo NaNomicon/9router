@@ -3,6 +3,7 @@
 import { useState } from "react";
 import PropTypes from "prop-types";
 import { Button } from "@/shared/components";
+import { mapDualModeTestResult } from "@/fork/modelTest";
 function CompatibleModelRow({ modelId, fullModel, copied, onCopy, onDeleteAlias, onTest, testStatus, isTesting, isDisabled, onDisable, onEnable, isToggling }) {
   const hasAnyTest = testStatus?.nonStream || testStatus?.stream;
   const hasAnyError = testStatus?.nonStream === "error" || testStatus?.stream === "error";
@@ -129,13 +130,7 @@ export default function CompatibleModelsSection({ providerStorageAlias, provider
         body: JSON.stringify({ model: `${providerStorageAlias}/${modelId}` }),
       });
       const data = await res.json();
-      setModelTestResults((prev) => ({ 
-        ...prev, 
-        [modelId]: {
-          nonStream: data.nonStream?.ok ? "ok" : "error",
-          stream: data.stream?.ok ? "ok" : "error"
-        }
-      }));
+      setModelTestResults((prev) => ({ ...prev, [modelId]: mapDualModeTestResult(data) }));
     } catch {
       setModelTestResults((prev) => ({ 
         ...prev, 
