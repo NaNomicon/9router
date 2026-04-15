@@ -143,6 +143,7 @@ cd cloud && wrangler deploy
 - **Env vars**: `DATA_DIR`, `JWT_SECRET`, `INITIAL_PASSWORD`, `API_KEY_SECRET`, `ENABLE_REQUEST_LOGS`, `NEXT_PUBLIC_BASE_URL`, `NEXT_PUBLIC_CLOUD_URL`, `HTTP_PROXY`/`HTTPS_PROXY`.
 - **TTFT Timeout (fork-only)** — Not present in upstream. A configurable time-to-first-token timeout that aborts slow streaming providers and soft-locks the account. Settings: `ttftTimeoutMs` (default 0 = disabled) and `ttftCooldownMs` (default 15000ms). Canonical fork seam: `src/fork/ttft/`. Integration points: `open-sse/handlers/chatCore.js`, `open-sse/services/accountFallback.js`, `src/sse/handlers/chat.js`, `src/lib/localDb.js`, and `src/app/(dashboard)/dashboard/profile/page.js`. **Merge guidance**: preserve helper imports/call boundaries first, then port any upstream flow changes around them.
 - **Provider model disable (fork-only)** — Provider-wide disabled model state and enforcement live behind `src/fork/providerModelDisable/`. Integration points: `src/lib/localDb.js`, `src/app/api/providers/[id]/route.js`, `src/app/api/v1/models/route.js`, `src/shared/components/ModelSelectModal.js`, `src/sse/handlers/chat.js`, and `src/app/(dashboard)/dashboard/providers/[id]/page.js`. **Merge guidance**: keep policy in helpers, and treat inline list/set logic in integration points as a regression to refactor back out.
+- **Dual-mode model test (fork-only)** — Manual model testing runs both non-stream and stream probes through a shared seam in `src/fork/modelTest/`. Integration points: `src/app/api/models/test/route.js`, `src/app/(dashboard)/dashboard/providers/[id]/page.js`, `src/app/(dashboard)/dashboard/providers/[id]/CompatibleModelsSection.js`, `src/app/(dashboard)/dashboard/providers/components/ModelsCard.js`, and `src/app/(dashboard)/dashboard/providers/[id]/AddCustomModelModal.js`. **Merge guidance**: keep test execution, SSE parsing, and UI result mapping in the helper seam, and treat inline dual-mode logic in those integration points as a regression.
 
 ## FORK HELPER SEAMS
 
@@ -150,6 +151,7 @@ cd cloud && wrangler deploy
 - Canonical locations for current fork-only helpers:
   - `src/fork/ttft/` for TTFT timeout constants, settings normalization, fallback handling, and stream-timeout helpers.
   - `src/fork/providerModelDisable/` for disabled-model normalization, selectors, and mutations shared across runtime/API/UI.
+  - `src/fork/modelTest/` for model test modes, executors, SSE parsing, and dual-result status mapping shared across API/UI.
 - Treat hotspot files as orchestration/integration points, not as the long-term home of fork logic.
 - When a future fork-only feature needs multiple touchpoints, add a new helper namespace under `src/fork/` (or the closest module-local fork seam) before modifying the hotspot files.
 - During upstream pulls/merges, verify helper module signatures first, then verify each integration point still calls the helper instead of re-inlining logic.
@@ -181,3 +183,4 @@ cd cloud && wrangler deploy
 - **Current fork-only feature checklist**:
   - **TTFT timeout** — verify `src/fork/ttft/` helpers still match integration points in `open-sse/handlers/chatCore.js`, `open-sse/services/accountFallback.js`, `src/sse/handlers/chat.js`, `src/lib/localDb.js`, and `src/app/(dashboard)/dashboard/profile/page.js`.
   - **Provider model disable** — verify `src/fork/providerModelDisable/` helpers still match integration points in `src/lib/localDb.js`, `src/app/api/providers/[id]/route.js`, `src/app/api/v1/models/route.js`, `src/shared/components/ModelSelectModal.js`, `src/sse/handlers/chat.js`, and the provider page UI under `src/app/(dashboard)/dashboard/providers/[id]/`.
+  - **Dual-mode model test** — verify `src/fork/modelTest/` helpers still match integration points in `src/app/api/models/test/route.js`, `src/app/(dashboard)/dashboard/providers/[id]/page.js`, `src/app/(dashboard)/dashboard/providers/[id]/CompatibleModelsSection.js`, `src/app/(dashboard)/dashboard/providers/components/ModelsCard.js`, and `src/app/(dashboard)/dashboard/providers/[id]/AddCustomModelModal.js`.
