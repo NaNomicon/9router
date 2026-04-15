@@ -64,6 +64,15 @@ Extend `BaseExecutor` (`executors/base.js`); implement `execute()` and `refreshC
 - **openai + codex force streaming**: `providerRequiresStreaming = true`; SSE-to-JSON conversion done by `handlers/chatCore/sseToJsonHandler.js` when client wants JSON.
 - **`strip[]` in providerModels**: opt-in per-model removal of `image` or `audio` content types before translation.
 - **`openai-compatible-*` / `anthropic-compatible-*` prefixes**: virtual provider IDs handled in `getProviderConfig` / `buildProviderUrl` / `getTargetFormat` — no executor or translator needed.
+- **Fork-only extensions should stay behind helper seams** — keep `handlers/chatCore.js` and `services/accountFallback.js` orchestration-focused, and delegate fork-only logic to `src/fork/ttft/*` rather than re-inlining it.
+
+## FORK INTEGRATION POINTS
+
+- Current fork TTFT seam: `src/fork/ttft/`
+- Current open-sse integration points for that seam:
+  - `handlers/chatCore.js` — keep upstream streaming flow intact, only delegate TTFT-specific timeout handling/log/detail creation.
+  - `services/accountFallback.js` — ask the TTFT helper whether an error should use fork-specific cooldown rules before falling back to generic error rules.
+- During upstream syncs, preserve helper imports/call boundaries first. If upstream refactors the surrounding flow, reattach the helper seam to the new flow instead of reintroducing inline fork logic.
 
 ## ANTI-PATTERNS
 

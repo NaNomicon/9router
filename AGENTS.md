@@ -141,7 +141,18 @@ cd cloud && wrangler deploy
 - **Two data volumes in Docker**: `/app/data` (main DB via `DATA_DIR`) and `/root/.9router` (usage) — must mount both.
 - **Default password is `123456`** — `JWT_SECRET` and `INITIAL_PASSWORD` must be changed in production.
 - **Env vars**: `DATA_DIR`, `JWT_SECRET`, `INITIAL_PASSWORD`, `API_KEY_SECRET`, `ENABLE_REQUEST_LOGS`, `NEXT_PUBLIC_BASE_URL`, `NEXT_PUBLIC_CLOUD_URL`, `HTTP_PROXY`/`HTTPS_PROXY`.
-- **TTFT Timeout (fork-only)** — Not present in upstream. A configurable time-to-first-token timeout that aborts slow streaming providers and soft-locks the account. Settings: `ttftTimeoutMs` (default 0 = disabled) and `ttftCooldownMs` (default 15000ms). Code paths: `open-sse/handlers/chatCore.js` (TTFT race + `raceTtftDeadline` helper), `open-sse/handlers/chatCore/streamingHandler.js` (deferred `onRequestSuccess`), `open-sse/services/accountFallback.js` (`ttft_timeout` error handler), `src/sse/handlers/chat.js` (settings wiring), `src/sse/services/auth.js` (options threading), `src/lib/localDb.js` (schema defaults), `src/app/(dashboard)/dashboard/profile/page.js` (UI controls). **Merge guidance**: When pulling upstream changes, check for conflicts in `chatCore.js` (around the `handleStreamingResponse` call site), `streamingHandler.js` (around line 43), `accountFallback.js` (top of `checkFallbackError`), `chat.js` (around `handleChatCore` call), and `auth.js` (`markAccountUnavailable` signature).
+- **TTFT Timeout (fork-only)** — Not present in upstream. A configurable time-to-first-token timeout that aborts slow streaming providers and soft-locks the account. Settings: `ttftTimeoutMs` (default 0 = disabled) and `ttftCooldownMs` (default 15000ms). Canonical fork seam: `src/fork/ttft/`. Integration points: `open-sse/handlers/chatCore.js`, `open-sse/services/accountFallback.js`, `src/sse/handlers/chat.js`, `src/lib/localDb.js`, and `src/app/(dashboard)/dashboard/profile/page.js`. **Merge guidance**: preserve helper imports/call boundaries first, then port any upstream flow changes around them.
+- **Provider model disable (fork-only)** — Provider-wide disabled model state and enforcement live behind `src/fork/providerModelDisable/`. Integration points: `src/lib/localDb.js`, `src/app/api/providers/[id]/route.js`, `src/app/api/v1/models/route.js`, `src/shared/components/ModelSelectModal.js`, `src/sse/handlers/chat.js`, and `src/app/(dashboard)/dashboard/providers/[id]/page.js`. **Merge guidance**: keep policy in helpers, and treat inline list/set logic in integration points as a regression to refactor back out.
+
+## FORK HELPER SEAMS
+
+- Put new fork-only behavior behind helper seams first, then call those helpers from upstream-owned files.
+- Canonical locations for current fork-only helpers:
+  - `src/fork/ttft/` for TTFT timeout constants, settings normalization, fallback handling, and stream-timeout helpers.
+  - `src/fork/providerModelDisable/` for disabled-model normalization, selectors, and mutations shared across runtime/API/UI.
+- Treat hotspot files as orchestration/integration points, not as the long-term home of fork logic.
+- When a future fork-only feature needs multiple touchpoints, add a new helper namespace under `src/fork/` (or the closest module-local fork seam) before modifying the hotspot files.
+- During upstream pulls/merges, verify helper module signatures first, then verify each integration point still calls the helper instead of re-inlining logic.
 
 ## FORK BRANCH WORKFLOW
 
@@ -168,5 +179,5 @@ cd cloud && wrangler deploy
   - verify the user-visible behavior or API path still exists.
 - **If upstream refactors the same area, port the feature intentionally** — do not assume a clean merge means the behavior survived. Re-apply the feature onto the new architecture if necessary, then verify before considering the sync complete.
 - **Current fork-only feature checklist**:
-  - **TTFT timeout** — verify `ttftTimeoutMs` / `ttftCooldownMs` wiring still exists in `open-sse/handlers/chatCore.js`, `open-sse/handlers/chatCore/streamingHandler.js`, `open-sse/services/accountFallback.js`, `src/sse/handlers/chat.js`, `src/sse/services/auth.js`, `src/lib/localDb.js`, and `src/app/(dashboard)/dashboard/profile/page.js`.
-  - **Provider model disable** — verify disabled-model behavior still exists in `src/lib/localDb.js`, `src/app/api/providers/[id]/route.js`, `src/app/api/v1/models/route.js`, `src/shared/components/ModelSelectModal.js`, `src/sse/handlers/chat.js`, and the provider page UI components under `src/app/(dashboard)/dashboard/providers/[id]/`.
+  - **TTFT timeout** — verify `src/fork/ttft/` helpers still match integration points in `open-sse/handlers/chatCore.js`, `open-sse/services/accountFallback.js`, `src/sse/handlers/chat.js`, `src/lib/localDb.js`, and `src/app/(dashboard)/dashboard/profile/page.js`.
+  - **Provider model disable** — verify `src/fork/providerModelDisable/` helpers still match integration points in `src/lib/localDb.js`, `src/app/api/providers/[id]/route.js`, `src/app/api/v1/models/route.js`, `src/shared/components/ModelSelectModal.js`, `src/sse/handlers/chat.js`, and the provider page UI under `src/app/(dashboard)/dashboard/providers/[id]/`.
