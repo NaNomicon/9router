@@ -5,6 +5,7 @@ import PropTypes from "prop-types";
 import Modal from "./Modal";
 import { getModelsByProviderId, PROVIDER_ID_TO_ALIAS } from "@/shared/constants/models";
 import { OAUTH_PROVIDERS, APIKEY_PROVIDERS, FREE_PROVIDERS, FREE_TIER_PROVIDERS, isOpenAICompatibleProvider, isAnthropicCompatibleProvider } from "@/shared/constants/providers";
+import { createDisabledModelsSet } from "@/fork/providerModelDisable/state";
 
 // Provider order: OAuth first, then Free Tier, then API Key (matches dashboard/providers)
 const PROVIDER_ORDER = [
@@ -89,11 +90,7 @@ export default function ModelSelectModal({
       const providerInfo = allProviders[providerId] || { name: providerId, color: "#666" };
       const isCustomProvider = isOpenAICompatibleProvider(providerId) || isAnthropicCompatibleProvider(providerId);
       const connection = activeProviders.find(p => p.provider === providerId);
-      const disabledModels = new Set(
-        Array.isArray(connection?.providerSpecificData?.disabledModels)
-          ? connection.providerSpecificData.disabledModels
-          : []
-      );
+      const disabledModels = createDisabledModelsSet(connection);
 
       if (providerInfo.passthroughModels) {
         const aliasModels = Object.entries(modelAliases)
