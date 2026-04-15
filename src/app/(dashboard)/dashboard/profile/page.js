@@ -5,6 +5,7 @@ import { Card, Button, Toggle, Input } from "@/shared/components";
 import { useTheme } from "@/shared/hooks/useTheme";
 import { cn } from "@/shared/utils/cn";
 import { APP_CONFIG } from "@/shared/constants/config";
+import { getTtftSettings } from "@/fork/ttft/settings";
 
 export default function ProfilePage() {
   const { theme, setTheme, isDark } = useTheme();
@@ -29,7 +30,7 @@ export default function ProfilePage() {
     fetch("/api/settings")
       .then((res) => res.json())
       .then((data) => {
-        setSettings(data);
+        setSettings({ ...data, ...getTtftSettings(data) });
         setProxyForm({
           outboundProxyEnabled: data?.outboundProxyEnabled === true,
           outboundProxyUrl: data?.outboundProxyUrl || "",
@@ -288,7 +289,7 @@ export default function ProfilePage() {
       const res = await fetch("/api/settings");
       if (!res.ok) return;
       const data = await res.json();
-      setSettings(data);
+      setSettings({ ...data, ...getTtftSettings(data) });
     } catch (err) {
       console.error("Failed to reload settings:", err);
     }
