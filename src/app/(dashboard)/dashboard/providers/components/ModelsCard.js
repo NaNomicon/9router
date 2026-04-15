@@ -9,15 +9,33 @@ import { useCopyToClipboard } from "@/shared/hooks/useCopyToClipboard";
 
 // ── ModelRow ───────────────────────────────────────────────────
 export function ModelRow({ model, fullModel, copied, onCopy, testStatus, isCustom, isFree, onDeleteAlias, onTest, isTesting }) {
-  const borderColor = testStatus === "ok" ? "border-green-500/40" : testStatus === "error" ? "border-red-500/40" : "border-border";
-  const iconColor = testStatus === "ok" ? "#22c55e" : testStatus === "error" ? "#ef4444" : undefined;
+  const hasAnyTest = testStatus?.nonStream || testStatus?.stream;
+  const hasAnyError = testStatus?.nonStream === "error" || testStatus?.stream === "error";
+  const allOk = testStatus?.nonStream === "ok" && testStatus?.stream === "ok";
+
+  const borderColor = allOk ? "border-green-500/40" : hasAnyError ? "border-red-500/40" : "border-border";
 
   return (
     <div className={`group px-3 py-2 rounded-lg border ${borderColor} hover:bg-sidebar/50`}>
       <div className="flex items-center gap-2">
-        <span className="material-symbols-outlined text-base" style={iconColor ? { color: iconColor } : undefined}>
-          {testStatus === "ok" ? "check_circle" : testStatus === "error" ? "cancel" : "smart_toy"}
-        </span>
+        {/* Non-stream status */}
+        <div className="relative group/status">
+          <span className={`material-symbols-outlined text-base ${testStatus?.nonStream === "ok" ? "text-green-500" : testStatus?.nonStream === "error" ? "text-red-500" : "text-text-muted"}`}>
+            {testStatus?.nonStream === "ok" ? "check_circle" : testStatus?.nonStream === "error" ? "cancel" : "smart_toy"}
+          </span>
+          <span className="pointer-events-none absolute top-5 left-1/2 -translate-x-1/2 text-[10px] text-text-muted whitespace-nowrap opacity-0 group-hover/status:opacity-100 transition-opacity">
+            Non-stream
+          </span>
+        </div>
+        {/* Stream status */}
+        <div className="relative group/status">
+          <span className={`material-symbols-outlined text-base ${testStatus?.stream === "ok" ? "text-green-500" : testStatus?.stream === "error" ? "text-red-500" : "text-text-muted"}`}>
+            {testStatus?.stream === "ok" ? "check_circle" : testStatus?.stream === "error" ? "cancel" : "smart_toy"}
+          </span>
+          <span className="pointer-events-none absolute top-5 left-1/2 -translate-x-1/2 text-[10px] text-text-muted whitespace-nowrap opacity-0 group-hover/status:opacity-100 transition-opacity">
+            Stream
+          </span>
+        </div>
         <div className="flex flex-col gap-1">
           <code className="text-xs text-text-muted font-mono bg-sidebar px-1.5 py-0.5 rounded">{fullModel}</code>
           {model.name && <span className="text-[9px] text-text-muted/70 italic pl-1">{model.name}</span>}
@@ -163,10 +181,16 @@ export default function ModelsCard({ providerId, kindFilter }) {
         body: JSON.stringify({ model: `${providerAlias}/${modelId}`, kind: kindFilter }),
       });
       const data = await res.json();
-      setModelTestResults((prev) => ({ ...prev, [modelId]: data.ok ? "ok" : "error" }));
-      setTestError(data.ok ? "" : (data.error || "Model not reachable"));
+      setModelTestResults((prev) => ({ 
+        ...prev, 
+        [modelId]: {
+          nonStream: data.nonStream?.ok ? "ok" : "error",
+          stream: data.stream?.ok ? "ok" : "error"
+        }
+      }));
+      setTestError(data.nonStream?.ok || data.stream?.ok ? "" : (data.nonStream?.error || data.stream?.error || "Model not reachable"));
     } catch {
-      setModelTestResults((prev) => ({ ...prev, [modelId]: "error" }));
+      setModelTestResults((prev) => ({ ...prev, [modelId]: { nonStream: "error", stream: "error" } }));
       setTestError("Network error");
     } finally { setTestingModelId(null); }
   };

@@ -4,30 +4,44 @@ import { useState } from "react";
 import PropTypes from "prop-types";
 import { Button } from "@/shared/components";
 function CompatibleModelRow({ modelId, fullModel, copied, onCopy, onDeleteAlias, onTest, testStatus, isTesting, isDisabled, onDisable, onEnable, isToggling }) {
+  const hasAnyTest = testStatus?.nonStream || testStatus?.stream;
+  const hasAnyError = testStatus?.nonStream === "error" || testStatus?.stream === "error";
+  const allOk = testStatus?.nonStream === "ok" && testStatus?.stream === "ok";
+
   const borderColor = isDisabled
     ? "border-black/[0.06] dark:border-white/[0.06]"
-    : testStatus === "ok"
+    : allOk
     ? "border-green-500/40"
-    : testStatus === "error"
+    : hasAnyError
     ? "border-red-500/40"
     : "border-border";
 
-  const iconColor = isDisabled
-    ? undefined
-    : testStatus === "ok"
-    ? "#22c55e"
-    : testStatus === "error"
-    ? "#ef4444"
-    : undefined;
-
   return (
     <div className={`group flex items-center gap-3 p-3 rounded-lg border ${borderColor} hover:bg-sidebar/50 ${isDisabled ? "opacity-50" : ""}`}>
-      <span
-        className={`material-symbols-outlined text-base ${isDisabled ? "text-text-muted" : "text-text-muted"}`}
-        style={iconColor ? { color: iconColor } : undefined}
-      >
-        {isDisabled ? "block" : testStatus === "ok" ? "check_circle" : testStatus === "error" ? "cancel" : "smart_toy"}
-      </span>
+      <div className="flex items-center gap-1">
+        {/* Non-stream status */}
+        <div className="relative group/status">
+          <span
+            className={`material-symbols-outlined text-base ${isDisabled ? "text-text-muted" : testStatus?.nonStream === "ok" ? "text-green-500" : testStatus?.nonStream === "error" ? "text-red-500" : "text-text-muted"}`}
+          >
+            {isDisabled ? "block" : testStatus?.nonStream === "ok" ? "check_circle" : testStatus?.nonStream === "error" ? "cancel" : "smart_toy"}
+          </span>
+          <span className="pointer-events-none absolute top-5 left-1/2 -translate-x-1/2 text-[10px] text-text-muted whitespace-nowrap opacity-0 group-hover/status:opacity-100 transition-opacity">
+            Non-stream
+          </span>
+        </div>
+        {/* Stream status */}
+        <div className="relative group/status">
+          <span
+            className={`material-symbols-outlined text-base ${isDisabled ? "text-text-muted" : testStatus?.stream === "ok" ? "text-green-500" : testStatus?.stream === "error" ? "text-red-500" : "text-text-muted"}`}
+          >
+            {isDisabled ? "block" : testStatus?.stream === "ok" ? "check_circle" : testStatus?.stream === "error" ? "cancel" : "smart_toy"}
+          </span>
+          <span className="pointer-events-none absolute top-5 left-1/2 -translate-x-1/2 text-[10px] text-text-muted whitespace-nowrap opacity-0 group-hover/status:opacity-100 transition-opacity">
+            Stream
+          </span>
+        </div>
+      </div>
       <div className="flex-1 min-w-0">
         <p className={`text-sm font-medium truncate ${isDisabled ? "line-through text-text-muted" : ""}`}>{modelId}</p>
         <div className="flex items-center gap-1 mt-1 flex-wrap">
@@ -115,9 +129,18 @@ export default function CompatibleModelsSection({ providerStorageAlias, provider
         body: JSON.stringify({ model: `${providerStorageAlias}/${modelId}` }),
       });
       const data = await res.json();
-      setModelTestResults((prev) => ({ ...prev, [modelId]: data.ok ? "ok" : "error" }));
+      setModelTestResults((prev) => ({ 
+        ...prev, 
+        [modelId]: {
+          nonStream: data.nonStream?.ok ? "ok" : "error",
+          stream: data.stream?.ok ? "ok" : "error"
+        }
+      }));
     } catch {
-      setModelTestResults((prev) => ({ ...prev, [modelId]: "error" }));
+      setModelTestResults((prev) => ({ 
+        ...prev, 
+        [modelId]: { nonStream: "error", stream: "error" }
+      }));
     } finally {
       setTestingModelId(null);
     }

@@ -6,7 +6,7 @@ import { Button, Modal } from "@/shared/components";
 
 export default function AddCustomModelModal({ isOpen, providerAlias, providerDisplayAlias, onSave, onClose }) {
   const [modelId, setModelId] = useState("");
-  const [testStatus, setTestStatus] = useState(null); // null | "testing" | "ok" | "error"
+  const [testStatus, setTestStatus] = useState(null); // null | "testing" | { nonStream, stream }
   const [testError, setTestError] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -26,10 +26,13 @@ export default function AddCustomModelModal({ isOpen, providerAlias, providerDis
         body: JSON.stringify({ model: `${providerAlias}/${modelId.trim()}` }),
       });
       const data = await res.json();
-      setTestStatus(data.ok ? "ok" : "error");
-      setTestError(data.error || "");
+      setTestStatus({
+        nonStream: data.nonStream?.ok ? "ok" : "error",
+        stream: data.stream?.ok ? "ok" : "error"
+      });
+      setTestError(data.nonStream?.error || data.stream?.error || "");
     } catch (err) {
-      setTestStatus("error");
+      setTestStatus({ nonStream: "error", stream: "error" });
       setTestError(err.message);
     }
   };
@@ -79,16 +82,30 @@ export default function AddCustomModelModal({ isOpen, providerAlias, providerDis
         </div>
 
         {/* Test result */}
-        {testStatus === "ok" && (
-          <div className="flex items-center gap-2 text-sm text-green-600">
-            <span className="material-symbols-outlined text-base">check_circle</span>
-            Model is reachable
-          </div>
-        )}
-        {testStatus === "error" && (
-          <div className="flex items-start gap-2 text-sm text-red-500">
-            <span className="material-symbols-outlined text-base shrink-0">cancel</span>
-            <span>{testError || "Model not reachable"}</span>
+        {testStatus !== "testing" && testStatus?.nonStream && (
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center gap-2 text-sm">
+              <span className={`material-symbols-outlined text-base ${testStatus.nonStream === "ok" ? "text-green-600" : "text-red-500"}`}>
+                {testStatus.nonStream === "ok" ? "check_circle" : "cancel"}
+              </span>
+              <span className={testStatus.nonStream === "ok" ? "text-green-600" : "text-red-500"}>
+                Non-stream: {testStatus.nonStream === "ok" ? "reachable" : "failed"}
+              </span>
+            </div>
+            <div className="flex items-center gap-2 text-sm">
+              <span className={`material-symbols-outlined text-base ${testStatus.stream === "ok" ? "text-green-600" : "text-red-500"}`}>
+                {testStatus.stream === "ok" ? "check_circle" : "cancel"}
+              </span>
+              <span className={testStatus.stream === "ok" ? "text-green-600" : "text-red-500"}>
+                Stream: {testStatus.stream === "ok" ? "reachable" : "failed"}
+              </span>
+            </div>
+            {testError && (
+              <div className="flex items-start gap-2 text-sm text-red-500">
+                <span className="material-symbols-outlined text-base shrink-0">info</span>
+                <span>{testError}</span>
+              </div>
+            )}
           </div>
         )}
 
