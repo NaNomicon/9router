@@ -6,6 +6,8 @@ import {
   deleteProviderConnection,
   updateProviderDisabledModels,
 } from "@/models";
+import { disableProviderModel, enableProviderModel } from "@/fork/providerModelDisable/mutations";
+import { getDisabledModels, normalizeDisabledModels } from "@/fork/providerModelDisable/state";
 
 function normalizeProxyConfig(body = {}) {
   const hasAnyProxyField =
@@ -229,9 +231,7 @@ export async function PATCH(request, { params }) {
     }
 
     // Current provider-wide disabled list (any one connection is representative per Task 1 invariant)
-    const currentDisabled = Array.isArray(connection.providerSpecificData?.disabledModels)
-      ? [...connection.providerSpecificData.disabledModels]
-      : [];
+    const currentDisabled = getDisabledModels(connection);
 
     let nextDisabled;
 
@@ -239,13 +239,7 @@ export async function PATCH(request, { params }) {
       if (!Array.isArray(body.disabledModels)) {
         return NextResponse.json({ error: "disabledModels must be an array" }, { status: 400 });
       }
-      // Trim, reject blanks, deduplicate
-      nextDisabled = [...new Set(
-        body.disabledModels
-          .filter((m) => typeof m === "string")
-          .map((m) => m.trim())
-          .filter((m) => m)
-      )];
+      nextDisabled = normalizeDisabledModels(body.disabledModels);
     } else if (hasDisableModel) {
       if (typeof body.disableModel !== "string") {
         return NextResponse.json({ error: "disableModel must be a string" }, { status: 400 });
@@ -254,10 +248,7 @@ export async function PATCH(request, { params }) {
       if (!modelId) {
         return NextResponse.json({ error: "disableModel must not be blank" }, { status: 400 });
       }
-      // Idempotent add
-      nextDisabled = currentDisabled.includes(modelId)
-        ? currentDisabled
-        : [...currentDisabled, modelId];
+      nextDisabled = disableProviderModel(currentDisabled, modelId);
     } else {
       // hasEnableModel
       if (typeof body.enableModel !== "string") {
@@ -267,7 +258,7 @@ export async function PATCH(request, { params }) {
       if (!modelId) {
         return NextResponse.json({ error: "enableModel must not be blank" }, { status: 400 });
       }
-      nextDisabled = currentDisabled.filter((m) => m !== modelId);
+      nextDisabled = enableProviderModel(currentDisabled, modelId);
     }
 
     const updatedCount = await updateProviderDisabledModels(providerId, nextDisabled);
