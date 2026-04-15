@@ -5,6 +5,8 @@ import path from "node:path";
 import os from "node:os";
 import fs from "node:fs";
 import lockfile from "proper-lockfile";
+import { normalizeDisabledModels } from "@/fork/providerModelDisable/state";
+import { TTFT_SETTINGS_DEFAULTS } from "@/fork/ttft/settings";
 
 const DEFAULT_MITM_ROUTER_BASE = "http://localhost:20128";
 const isCloud = typeof caches !== 'undefined' || typeof caches === 'object';
@@ -56,8 +58,7 @@ const DEFAULT_SETTINGS = {
   outboundProxyUrl: "",
   outboundNoProxy: "",
   mitmRouterBaseUrl: DEFAULT_MITM_ROUTER_BASE,
-  ttftTimeoutMs: 0,
-  ttftCooldownMs: 15000,
+  ...TTFT_SETTINGS_DEFAULTS,
 };
 
 function cloneDefaultData() {
@@ -534,6 +535,7 @@ export async function updateProviderDisabledModels(providerId, disabledModels) {
   const db = await getDb();
   const now = new Date().toISOString();
   let updatedCount = 0;
+  const normalizedDisabledModels = normalizeDisabledModels(disabledModels);
 
   db.data.providerConnections.forEach((c, index) => {
     if (c.provider !== providerId) return;
@@ -542,7 +544,7 @@ export async function updateProviderDisabledModels(providerId, disabledModels) {
       ...c,
       providerSpecificData: {
         ...(c.providerSpecificData || {}),
-        disabledModels: Array.isArray(disabledModels) ? [...disabledModels] : [],
+        disabledModels: normalizedDisabledModels,
       },
       updatedAt: now,
     };

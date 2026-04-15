@@ -1,6 +1,7 @@
 import { PROVIDER_MODELS, PROVIDER_ID_TO_ALIAS } from "@/shared/constants/models";
 import { getProviderAlias, isAnthropicCompatibleProvider, isOpenAICompatibleProvider } from "@/shared/constants/providers";
 import { getProviderConnections, getCombos } from "@/lib/localDb";
+import { createDisabledModelsSet } from "@/fork/providerModelDisable/state";
 
 const parseOpenAIStyleModels = (data) => {
   if (Array.isArray(data)) return data;
@@ -156,11 +157,7 @@ export async function GET() {
         ).trim();
         const providerModels = PROVIDER_MODELS[staticAlias] || [];
         const enabledModels = conn?.providerSpecificData?.enabledModels;
-        const disabledModelsSet = new Set(
-          Array.isArray(conn?.providerSpecificData?.disabledModels)
-            ? conn.providerSpecificData.disabledModels
-            : [],
-        );
+        const disabledModelsSet = createDisabledModelsSet(conn);
         const hasExplicitEnabledModels =
           Array.isArray(enabledModels) && enabledModels.length > 0;
         const isCompatibleProvider =

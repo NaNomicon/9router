@@ -16,6 +16,8 @@ import { handleForcedSSEToJson } from "./chatCore/sseToJsonHandler.js";
 import { handleNonStreamingResponse } from "./chatCore/nonStreamingHandler.js";
 import { handleStreamingResponse, buildOnStreamComplete } from "./chatCore/streamingHandler.js";
 import { detectClientTool, isNativePassthrough } from "../utils/clientDetector.js";
+import { TTFT_TIMEOUT_ERROR } from "@/fork/ttft/error";
+import { buildTtftTimeoutDetailBase, buildTtftTimeoutLogEntry, raceTtftDeadline } from "@/fork/ttft/streaming";
 
 /**
  * Core chat handler - shared between SSE and Worker
@@ -241,81 +243,45 @@ export async function handleChatCore({ body, modelInfo, credentials, log, onCred
   if (stream && ttftTimeoutMs > 0) {
     const elapsedBeforeStreamMs = Date.now() - requestStartTime;
     const remainingTtftMs = ttftTimeoutMs - elapsedBeforeStreamMs;
+    const requestConfig = extractRequestConfig(body, stream);
+    const providerRequest = finalBody || translatedBody || null;
 
     if (remainingTtftMs <= 0) {
       streamController.abort();
       trackPendingRequest(model, provider, connectionId, false, true);
-      appendRequestLog({ model, provider, connectionId, status: "TTFT_TIMEOUT" }).catch(() => {});
-      saveRequestDetail(buildRequestDetail({
-        provider, model, connectionId,
-        latency: { ttft: Date.now() - requestStartTime, total: Date.now() - requestStartTime },
-        tokens: { prompt_tokens: 0, completion_tokens: 0 },
-        request: extractRequestConfig(body, stream),
-        providerRequest: finalBody || translatedBody || null,
-        response: { error: "ttft_timeout", message: "Timed out before first token; fell back to the next account.", thinking: null },
-        status: "error"
-      }, { id: streamDetailId })).catch(() => {});
+      appendRequestLog(buildTtftTimeoutLogEntry({ model, provider, connectionId })).catch(() => {});
+      saveRequestDetail(buildRequestDetail(buildTtftTimeoutDetailBase({
+        provider,
+        model,
+        connectionId,
+        elapsedMs: elapsedBeforeStreamMs,
+        requestConfig,
+        providerRequest,
+      }), { id: streamDetailId })).catch(() => {});
       console.log(`[TTFT] ${provider}/${model} exceeded ${ttftTimeoutMs}ms before first token`);
-      return createErrorResult(408, "ttft_timeout");
+      return createErrorResult(408, TTFT_TIMEOUT_ERROR);
     }
 
     const ttftResult = await raceTtftDeadline(providerResponse, remainingTtftMs, streamController);
     if (ttftResult.timedOut) {
+      const elapsedMs = Date.now() - requestStartTime;
       trackPendingRequest(model, provider, connectionId, false, true);
-      appendRequestLog({ model, provider, connectionId, status: "TTFT_TIMEOUT" }).catch(() => {});
-      saveRequestDetail(buildRequestDetail({
-        provider, model, connectionId,
-        latency: { ttft: Date.now() - requestStartTime, total: Date.now() - requestStartTime },
-        tokens: { prompt_tokens: 0, completion_tokens: 0 },
-        request: extractRequestConfig(body, stream),
-        providerRequest: finalBody || translatedBody || null,
-        response: { error: "ttft_timeout", message: "Timed out before first token; fell back to the next account.", thinking: null },
-        status: "error"
-      }, { id: streamDetailId })).catch(() => {});
+      appendRequestLog(buildTtftTimeoutLogEntry({ model, provider, connectionId })).catch(() => {});
+      saveRequestDetail(buildRequestDetail(buildTtftTimeoutDetailBase({
+        provider,
+        model,
+        connectionId,
+        elapsedMs,
+        requestConfig,
+        providerRequest,
+      }), { id: streamDetailId })).catch(() => {});
       console.log(`[TTFT] ${provider}/${model} exceeded ${ttftTimeoutMs}ms before first token`);
-      return createErrorResult(408, "ttft_timeout");
+      return createErrorResult(408, TTFT_TIMEOUT_ERROR);
     }
     responseToStream = ttftResult.response;
   }
 
   return handleStreamingResponse({ ...sharedCtx, providerResponse: responseToStream, sourceFormat, targetFormat, userAgent, reqLogger, toolNameMap, streamController, onStreamComplete, streamDetailId });
-}
-
-async function raceTtftDeadline(providerResponse, ttftTimeoutMs, streamController) {
-  return new Promise((resolve) => {
-    const timer = setTimeout(() => {
-      streamController.abort();
-      resolve({ timedOut: true });
-    }, ttftTimeoutMs);
-
-    const reader = providerResponse.body.getReader();
-    reader.read().then(({ value, done }) => {
-      clearTimeout(timer);
-      const newBody = new ReadableStream({
-        start(controller) {
-          if (!done && value) controller.enqueue(value);
-          if (done) { controller.close(); return; }
-        },
-        async pull(controller) {
-          const { value: chunk, done: isDone } = await reader.read();
-          if (isDone) { controller.close(); return; }
-          controller.enqueue(chunk);
-        },
-        cancel() { reader.cancel(); }
-      });
-      resolve({
-        timedOut: false,
-        response: new Response(newBody, {
-          status: providerResponse.status,
-          statusText: providerResponse.statusText,
-          headers: providerResponse.headers
-        })
-      });
-    }).catch(() => {
-      clearTimeout(timer);
-      resolve({ timedOut: true });
-    });
-  });
 }
 
 export function isTokenExpiringSoon(expiresAt, bufferMs = 5 * 60 * 1000) {

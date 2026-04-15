@@ -16,6 +16,8 @@ import ConnectionRow from "./ConnectionRow";
 import AddApiKeyModal from "./AddApiKeyModal";
 import EditCompatibleNodeModal from "./EditCompatibleNodeModal";
 import AddCustomModelModal from "./AddCustomModelModal";
+import { applyDisabledModelsToConnections, disableProviderModel, enableProviderModel } from "@/fork/providerModelDisable/mutations";
+import { createDisabledModelsSet, getDisabledModels } from "@/fork/providerModelDisable/state";
 
 export default function ProviderDetailPage() {
   const params = useParams();
@@ -571,21 +573,16 @@ export default function ProviderDetailPage() {
   };
 
   // All connections for a provider carry identical disabledModels (Task 1 invariant), so first is representative.
-  const disabledModels = connections[0]?.providerSpecificData?.disabledModels || [];
-  const disabledModelsSet = new Set(disabledModels);
+  const disabledModels = getDisabledModels(connections);
+  const disabledModelsSet = createDisabledModelsSet(connections);
 
   const handleDisableModel = async (modelId) => {
     if (togglingModelId) return;
     const connectionId = connections.find((c) => c.isActive !== false)?.id || connections[0]?.id;
     if (!connectionId) return;
     setTogglingModelId(modelId);
-    const next = [...new Set([...disabledModels, modelId])];
-    setConnections((prev) =>
-      prev.map((c) => ({
-        ...c,
-        providerSpecificData: { ...(c.providerSpecificData || {}), disabledModels: next },
-      }))
-    );
+    const next = disableProviderModel(disabledModels, modelId);
+    setConnections((prev) => applyDisabledModelsToConnections(prev, next));
     try {
       const res = await fetch(`/api/providers/${connectionId}`, {
         method: "PATCH",
@@ -609,13 +606,8 @@ export default function ProviderDetailPage() {
     const connectionId = connections.find((c) => c.isActive !== false)?.id || connections[0]?.id;
     if (!connectionId) return;
     setTogglingModelId(modelId);
-    const next = disabledModels.filter((m) => m !== modelId);
-    setConnections((prev) =>
-      prev.map((c) => ({
-        ...c,
-        providerSpecificData: { ...(c.providerSpecificData || {}), disabledModels: next },
-      }))
-    );
+    const next = enableProviderModel(disabledModels, modelId);
+    setConnections((prev) => applyDisabledModelsToConnections(prev, next));
     try {
       const res = await fetch(`/api/providers/${connectionId}`, {
         method: "PATCH",

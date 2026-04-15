@@ -19,6 +19,8 @@ import { detectFormatByEndpoint } from "open-sse/translator/formats.js";
 import * as log from "../utils/logger.js";
 import { updateProviderCredentials, checkAndRefreshToken } from "../services/tokenRefresh.js";
 import { getProjectIdForConnection } from "open-sse/services/projectId.js";
+import { getDisabledModels, isModelDisabled } from "@/fork/providerModelDisable/state";
+import { getTtftSettings } from "@/fork/ttft/settings";
 
 /**
  * Handle chat completion request
@@ -146,12 +148,9 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
 
   // Guard: reject disabled models before routing (provider-wide, covers aliases)
   const activeConnections = await getProviderConnections({ provider, isActive: true });
-  if (activeConnections.length > 0) {
-    const disabledModels = activeConnections[0].providerSpecificData?.disabledModels;
-    if (Array.isArray(disabledModels) && disabledModels.includes(model)) {
-      log.warn("CHAT", `Model ${model} is disabled for provider: ${provider}`);
-      return errorResponse(HTTP_STATUS.NOT_FOUND, `No active credentials for provider: ${provider}`);
-    }
+  if (activeConnections.length > 0 && isModelDisabled(activeConnections, model)) {
+    log.warn("CHAT", `Model ${model} is disabled for provider: ${provider}`);
+    return errorResponse(HTTP_STATUS.NOT_FOUND, `No active credentials for provider: ${provider}`);
   }
 
   // Log model routing (alias → actual model)
@@ -206,6 +205,7 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
     // Use shared chatCore
     const chatSettings = await getSettings();
     const providerThinking = (chatSettings.providerThinking || {})[provider] || null;
+    const { ttftTimeoutMs, ttftCooldownMs } = getTtftSettings(chatSettings);
     const result = await handleChatCore({
       body: { ...body, model: `${provider}/${model}` },
       modelInfo: { provider, model },
@@ -219,8 +219,8 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
       providerThinking,
       // Detect source format by endpoint + body
       sourceFormatOverride: request?.url ? detectFormatByEndpoint(new URL(request.url).pathname, body) : null,
-      ttftTimeoutMs: chatSettings.ttftTimeoutMs || 0,
-      ttftCooldownMs: chatSettings.ttftCooldownMs || 15000,
+      ttftTimeoutMs,
+      ttftCooldownMs,
       onCredentialsRefreshed: async (newCreds) => {
         await updateProviderCredentials(credentials.connectionId, {
           accessToken: newCreds.accessToken,
@@ -237,7 +237,7 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
     if (result.success) return result.response;
 
     // Mark account unavailable (auto-calculates cooldown with exponential backoff)
-    const { shouldFallback } = await markAccountUnavailable(credentials.connectionId, result.status, result.error, provider, model, { ttftCooldownMs: chatSettings.ttftCooldownMs || 15000 });
+    const { shouldFallback } = await markAccountUnavailable(credentials.connectionId, result.status, result.error, provider, model, { ttftCooldownMs });
 
     if (shouldFallback) {
       log.warn("AUTH", `Account ${credentials.connectionName} unavailable (${result.status}), trying fallback`);
