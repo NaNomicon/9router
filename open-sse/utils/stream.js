@@ -3,6 +3,16 @@ import { FORMATS } from "../translator/formats.js";
 import { trackPendingRequest, appendRequestLog } from "@/lib/usageDb.js";
 import { extractUsage, hasValidUsage, estimateUsage, logUsage, addBufferToUsage, filterUsageForFormat, COLORS } from "./usageTracking.js";
 import { parseSSELine, hasValuableContent, fixInvalidId, formatSSE } from "./streamHelpers.js";
+import {
+  createSoftErrorGuardState,
+  findSoftErrorPhraseMatch,
+  getSoftErrorTailText,
+  recordSoftErrorVisibleText,
+  splitSoftErrorContentForFlush,
+} from "@/fork/softErrorPhrase/detect";
+import { SOFT_ERROR_PHRASE_STREAM_MARKER } from "@/fork/softErrorPhrase/error";
+import { getSoftErrorPhraseSettings } from "@/fork/softErrorPhrase/settings";
+import { getSettings } from "@/lib/localDb";
 
 export { COLORS, formatSSE };
 
@@ -43,7 +53,8 @@ export function createSSEStream(options = {}) {
     connectionId = null,
     body = null,
     onStreamComplete = null,
-    apiKey = null
+    apiKey = null,
+    onDeferredSuccess = null
   } = options;
 
   let buffer = "";
@@ -58,9 +69,120 @@ export function createSSEStream(options = {}) {
   let accumulatedContent = "";
   let accumulatedThinking = "";
   let ttftAt = null;
+  let successFired = false;
+  let softErrorPhrases = [];
+  let guardState = null;
+
+  const ensureSoftErrorGuard = async () => {
+    if (guardState) return;
+    const settings = await getSettings();
+    softErrorPhrases = getSoftErrorPhraseSettings(settings).softErrorPhrases;
+    guardState = createSoftErrorGuardState(softErrorPhrases);
+  };
+
+  const markDeferredSuccess = () => {
+    if (!successFired && typeof onDeferredSuccess === "function") {
+      successFired = true;
+      onDeferredSuccess();
+    }
+  };
+
+  const emitOutput = (controller, output) => {
+    reqLogger?.appendConvertedChunk?.(output);
+    controller.enqueue(sharedEncoder.encode(output));
+  };
+
+  /**
+   * Extract assistant-visible text from a translated chunk for soft-error detection.
+   * Works across OpenAI, Claude, and Antigravity output formats.
+   */
+  const extractVisibleTextFromItem = (item) => {
+    // OpenAI chat.completions format
+    if (item?.choices?.[0]?.delta?.content) {
+      return item.choices[0].delta.content;
+    }
+    // Claude format: content_block_delta with text_delta
+    if (item?.type === "content_block_delta" && item?.delta?.type === "text_delta" && typeof item.delta.text === "string") {
+      return item.delta.text;
+    }
+    // Antigravity format: { response: { candidates: [{ content: { parts: [{ text }] }] }] } }
+    if (item?.response?.candidates?.[0]?.content?.parts) {
+      const parts = item.response.candidates[0].content.parts;
+      for (const part of parts) {
+        if (typeof part?.text === "string" && !part.thought) {
+          return part.text;
+        }
+      }
+    }
+    return "";
+  };
+
+  /**
+   * Rebuild a translated chunk with replaced assistant-visible text.
+   * Preserves all other structure and fields. Returns a new object.
+   */
+  const rebuildItemWithText = (item, newText, format) => {
+    // OpenAI chat.completions format
+    if (format === FORMATS.OPENAI && item?.choices?.[0]?.delta) {
+      return {
+        ...item,
+        choices: item.choices.map((choice, index) => index === 0
+          ? { ...choice, delta: { ...choice.delta, content: newText } }
+          : choice),
+      };
+    }
+    // Claude format: content_block_delta with text_delta
+    if (format === FORMATS.CLAUDE && item?.type === "content_block_delta" && item?.delta?.type === "text_delta") {
+      return {
+        ...item,
+        delta: { ...item.delta, text: newText },
+      };
+    }
+    // Antigravity format
+    if ((format === FORMATS.ANTIGRAVITY || format === FORMATS.GEMINI || format === FORMATS.GEMINI_CLI || format === FORMATS.VERTEX) && item?.response?.candidates?.[0]?.content?.parts) {
+      const newParts = item.response.candidates[0].content.parts.map((part) => {
+        if (typeof part?.text === "string" && !part.thought) {
+          return { ...part, text: newText };
+        }
+        return part;
+      });
+      return {
+        ...item,
+        response: {
+          ...item.response,
+          candidates: [{
+            ...item.response.candidates[0],
+            content: {
+              ...item.response.candidates[0].content,
+              parts: newParts,
+            },
+          }],
+        },
+      };
+    }
+    // Fallback: return as-is if we don't recognize the structure
+    return item;
+  };
+
+  const emitTranslatedTextChunk = async (controller, item, textChunk) => {
+    await ensureSoftErrorGuard();
+    recordSoftErrorVisibleText(guardState, textChunk);
+
+    const match = findSoftErrorPhraseMatch(guardState.visibleText, softErrorPhrases);
+    if (match.matched) {
+      throw new Error(`${SOFT_ERROR_PHRASE_STREAM_MARKER}:${match.phrase}`);
+    }
+
+    const { emit } = splitSoftErrorContentForFlush(guardState, textChunk);
+    if (!emit) return;
+
+    const nextItem = rebuildItemWithText(item, emit, sourceFormat);
+    emitOutput(controller, formatSSE(nextItem, sourceFormat));
+    markDeferredSuccess();
+  };
 
   return new TransformStream({
-    transform(chunk, controller) {
+    async transform(chunk, controller) {
       if (!ttftAt) {
         ttftAt = Date.now();
       }
@@ -122,6 +244,16 @@ export function createSSEStream(options = {}) {
                 accumulatedThinking += reasoning;
               }
 
+              // Soft-error detection for passthrough mode (after accumulation, no holdback)
+              if (accumulatedContent) {
+                await ensureSoftErrorGuard();
+                recordSoftErrorVisibleText(guardState, content || "");
+                const match = findSoftErrorPhraseMatch(guardState.visibleText, softErrorPhrases);
+                if (match.matched) {
+                  throw new Error(`${SOFT_ERROR_PHRASE_STREAM_MARKER}:${match.phrase}`);
+                }
+              }
+
               const extracted = extractUsage(parsed);
               if (extracted) {
                 usage = extracted;
@@ -154,13 +286,15 @@ export function createSSEStream(options = {}) {
             }
           }
 
-          reqLogger?.appendConvertedChunk?.(output);
-          controller.enqueue(sharedEncoder.encode(output));
+          emitOutput(controller, output);
+          markDeferredSuccess();
           continue;
         }
 
         // Translate mode
         if (!trimmed) continue;
+
+        await ensureSoftErrorGuard();
 
         const parsed = parseSSELine(trimmed, targetFormat);
         if (!parsed) continue;
@@ -169,8 +303,7 @@ export function createSSEStream(options = {}) {
         // For other formats: done=true is the [DONE] sentinel, skip
         if (parsed && parsed.done && targetFormat !== FORMATS.OLLAMA) {
           const output = "data: [DONE]\n\n";
-          reqLogger?.appendConvertedChunk?.(output);
-          controller.enqueue(sharedEncoder.encode(output));
+          emitOutput(controller, output);
           continue;
         }
 
@@ -245,15 +378,18 @@ export function createSSEStream(options = {}) {
               item.usage = filterUsageForFormat(buffered, sourceFormat);
             }
 
-            const output = formatSSE(item, sourceFormat);
-            reqLogger?.appendConvertedChunk?.(output);
-            controller.enqueue(sharedEncoder.encode(output));
+            const visibleTextChunk = extractVisibleTextFromItem(item);
+            if (visibleTextChunk) {
+              await emitTranslatedTextChunk(controller, item, visibleTextChunk);
+            } else {
+              emitOutput(controller, formatSSE(item, sourceFormat));
+            }
           }
         }
       }
     },
 
-    flush(controller) {
+    async flush(controller) {
       trackPendingRequest(model, provider, connectionId, false);
       try {
         const remaining = decoder.decode();
@@ -265,8 +401,7 @@ export function createSSEStream(options = {}) {
             if (buffer.startsWith("data:") && !buffer.startsWith("data: ")) {
               output = "data: " + buffer.slice(5);
             }
-            reqLogger?.appendConvertedChunk?.(output);
-            controller.enqueue(sharedEncoder.encode(output));
+            emitOutput(controller, output);
           }
 
           if (!hasValidUsage(usage) && totalContentLength > 0) {
@@ -310,9 +445,12 @@ export function createSSEStream(options = {}) {
 
             if (translated?.length > 0) {
               for (const item of translated) {
-                const output = formatSSE(item, sourceFormat);
-                reqLogger?.appendConvertedChunk?.(output);
-                controller.enqueue(sharedEncoder.encode(output));
+                const visibleTextChunk = extractVisibleTextFromItem(item);
+                if (visibleTextChunk) {
+                  await emitTranslatedTextChunk(controller, item, visibleTextChunk);
+                } else {
+                  emitOutput(controller, formatSSE(item, sourceFormat));
+                }
               }
             }
           }
@@ -329,15 +467,35 @@ export function createSSEStream(options = {}) {
 
         if (flushed?.length > 0) {
           for (const item of flushed) {
-            const output = formatSSE(item, sourceFormat);
-            reqLogger?.appendConvertedChunk?.(output);
-            controller.enqueue(sharedEncoder.encode(output));
+            const visibleTextChunk = extractVisibleTextFromItem(item);
+            if (visibleTextChunk) {
+              await emitTranslatedTextChunk(controller, item, visibleTextChunk);
+            } else {
+              emitOutput(controller, formatSSE(item, sourceFormat));
+            }
           }
         }
 
+        const heldTail = getSoftErrorTailText(guardState);
+        if (heldTail) {
+          // Build a format-appropriate tail chunk for the held text
+          const tailItem = rebuildItemWithText(
+            {
+              id: `chatcmpl-${Date.now()}`,
+              object: "chat.completion.chunk",
+              created: Math.floor(Date.now() / 1000),
+              model,
+              choices: [{ index: 0, delta: { content: heldTail } }],
+            },
+            heldTail,
+            sourceFormat
+          );
+          emitOutput(controller, formatSSE(tailItem, sourceFormat));
+          markDeferredSuccess();
+        }
+
         const doneOutput = "data: [DONE]\n\n";
-        reqLogger?.appendConvertedChunk?.(doneOutput);
-        controller.enqueue(sharedEncoder.encode(doneOutput));
+        emitOutput(controller, doneOutput);
 
         if (!hasValidUsage(state?.usage) && totalContentLength > 0) {
           state.usage = estimateUsage(body, totalContentLength, sourceFormat);
@@ -356,13 +514,17 @@ export function createSSEStream(options = {}) {
           }, state?.usage, ttftAt);
         }
       } catch (error) {
+        if (String(error?.message || "").startsWith(`${SOFT_ERROR_PHRASE_STREAM_MARKER}:`)) {
+          controller.error(error);
+          return;
+        }
         console.log("Error in flush:", error);
       }
     }
   });
 }
 
-export function createSSETransformStreamWithLogger(targetFormat, sourceFormat, provider = null, reqLogger = null, toolNameMap = null, model = null, connectionId = null, body = null, onStreamComplete = null, apiKey = null) {
+export function createSSETransformStreamWithLogger(targetFormat, sourceFormat, provider = null, reqLogger = null, toolNameMap = null, model = null, connectionId = null, body = null, onStreamComplete = null, apiKey = null, onDeferredSuccess = null) {
   return createSSEStream({
     mode: STREAM_MODE.TRANSLATE,
     targetFormat,
@@ -374,11 +536,12 @@ export function createSSETransformStreamWithLogger(targetFormat, sourceFormat, p
     connectionId,
     body,
     onStreamComplete,
-    apiKey
+    apiKey,
+    onDeferredSuccess
   });
 }
 
-export function createPassthroughStreamWithLogger(provider = null, reqLogger = null, model = null, connectionId = null, body = null, onStreamComplete = null, apiKey = null) {
+export function createPassthroughStreamWithLogger(provider = null, reqLogger = null, model = null, connectionId = null, body = null, onStreamComplete = null, apiKey = null, onDeferredSuccess = null) {
   return createSSEStream({
     mode: STREAM_MODE.PASSTHROUGH,
     provider,
@@ -387,6 +550,7 @@ export function createPassthroughStreamWithLogger(provider = null, reqLogger = n
     connectionId,
     body,
     onStreamComplete,
-    apiKey
+    apiKey,
+    onDeferredSuccess
   });
 }
