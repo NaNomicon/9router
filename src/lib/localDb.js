@@ -2,34 +2,14 @@ import { Low } from "lowdb";
 import { JSONFile } from "lowdb/node";
 import { v4 as uuidv4 } from "uuid";
 import path from "node:path";
-import os from "node:os";
 import fs from "node:fs";
 import lockfile from "proper-lockfile";
 import { normalizeDisabledModels } from "@/fork/providerModelDisable/state";
 import { TTFT_SETTINGS_DEFAULTS } from "@/fork/ttft/settings";
+import { DATA_DIR } from "@/lib/dataDir.js";
 
 const DEFAULT_MITM_ROUTER_BASE = "http://localhost:20128";
 const isCloud = typeof caches !== 'undefined' || typeof caches === 'object';
-
-function getAppName() {
-  return "9router";
-}
-
-function getUserDataDir() {
-  if (isCloud) return "/tmp";
-  if (process.env.DATA_DIR) return process.env.DATA_DIR;
-
-  const platform = process.platform;
-  const homeDir = os.homedir();
-  const appName = getAppName();
-
-  if (platform === "win32") {
-    return path.join(process.env.APPDATA || path.join(homeDir, "AppData", "Roaming"), appName);
-  }
-  return path.join(homeDir, `.${appName}`);
-}
-
-const DATA_DIR = getUserDataDir();
 const DB_FILE = isCloud ? null : path.join(DATA_DIR, "db.json");
 
 if (!isCloud && !fs.existsSync(DATA_DIR)) {
@@ -67,6 +47,7 @@ function cloneDefaultData() {
     providerNodes: [],
     proxyPools: [],
     modelAliases: {},
+    customModels: [],
     mitmAlias: {},
     combos: [],
     apiKeys: [],
@@ -148,8 +129,8 @@ class LocalMutex {
       return () => this._release();
     }
     return new Promise((resolve) => {
-      this._queue.push(resolve);
-    }).then(() => () => this._release());
+      this._queue.push(() => resolve(() => this._release()));
+    });
   }
 
   _release() {
@@ -574,6 +555,33 @@ export async function setModelAlias(alias, model) {
 export async function deleteModelAlias(alias) {
   const db = await getDb();
   delete db.data.modelAliases[alias];
+  await safeWrite(db);
+}
+
+// Custom models — user-added models with explicit type (llm/image/tts/embedding/...)
+export async function getCustomModels() {
+  const db = await getDb();
+  return db.data.customModels || [];
+}
+
+export async function addCustomModel({ providerAlias, id, type = "llm", name }) {
+  const db = await getDb();
+  if (!db.data.customModels) db.data.customModels = [];
+  const exists = db.data.customModels.some(
+    (m) => m.providerAlias === providerAlias && m.id === id && (m.type || "llm") === type
+  );
+  if (exists) return false;
+  db.data.customModels.push({ providerAlias, id, type, name: name || id });
+  await safeWrite(db);
+  return true;
+}
+
+export async function deleteCustomModel({ providerAlias, id, type = "llm" }) {
+  const db = await getDb();
+  if (!db.data.customModels) return;
+  db.data.customModels = db.data.customModels.filter(
+    (m) => !(m.providerAlias === providerAlias && m.id === id && (m.type || "llm") === type)
+  );
   await safeWrite(db);
 }
 

@@ -30,8 +30,8 @@ export const DEFAULT_ERROR_MESSAGES = {
 
 // Exponential backoff config for rate limits
 export const BACKOFF_CONFIG = {
-  base: 1000,
-  max: 3 * 60 * 1000,
+  base: 2000,
+  max: 5 * 60 * 1000,
   maxLevel: 15
 };
 
