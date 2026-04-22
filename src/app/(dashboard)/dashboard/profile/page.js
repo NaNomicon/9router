@@ -6,6 +6,7 @@ import { useTheme } from "@/shared/hooks/useTheme";
 import { cn } from "@/shared/utils/cn";
 import { APP_CONFIG } from "@/shared/constants/config";
 import { getTtftSettings } from "@/fork/ttft/settings";
+import { getSoftErrorPhraseSettings } from "@/fork/softErrorPhrase/settings";
 
 export default function ProfilePage() {
   const { theme, setTheme, isDark } = useTheme();
@@ -30,7 +31,7 @@ export default function ProfilePage() {
     fetch("/api/settings")
       .then((res) => res.json())
       .then((data) => {
-        setSettings({ ...data, ...getTtftSettings(data) });
+        setSettings({ ...data, ...getTtftSettings(data), ...getSoftErrorPhraseSettings(data) });
         setProxyForm({
           outboundProxyEnabled: data?.outboundProxyEnabled === true,
           outboundProxyUrl: data?.outboundProxyUrl || "",
@@ -254,7 +255,22 @@ export default function ProfilePage() {
     }
   };
 
+  const updateSoftErrorPhrases = async (val) => {
+    const lines = val.split("\n").map(s => s.trim()).filter(Boolean);
+    try {
+      const res = await fetch("/api/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ softErrorPhrases: lines }),
+      });
+      if (res.ok) setSettings(prev => ({ ...prev, softErrorPhrases: lines }));
+    } catch (err) {
+      console.error("Failed to update soft-error phrases:", err);
+    }
+  };
+
   const updateRequireLogin = async (requireLogin) => {
+
     try {
       const res = await fetch("/api/settings", {
         method: "PATCH",
@@ -615,6 +631,34 @@ export default function ProfilePage() {
                 disabled={loading}
                 className="w-24 text-center"
               />
+            </div>
+
+            {/* Soft-Error Phrases */}
+            <div className="pt-4 border-t border-border/50">
+              <div className="mb-2">
+                <p className="font-medium">Soft-Error Phrases</p>
+                <p className="text-sm text-text-muted">
+                  Phrases to detect in responses and treat as provider failures (one per line, case-insensitive)
+                </p>
+              </div>
+              <textarea
+                value={(settings.softErrorPhrases || []).join("\n")}
+                onChange={(e) => updateSoftErrorPhrases(e.target.value)}
+                disabled={loading}
+                rows={4}
+                placeholder="Error An error occurred while processing your request&#10;Error Our servers are currently overloaded"
+                className={cn(
+                  "w-full py-2 px-3 text-sm text-text-main",
+                  "bg-white dark:bg-white/5 border border-black/10 dark:border-white/10 rounded-md",
+                  "placeholder-text-muted/60",
+                  "focus:ring-1 focus:ring-primary/30 focus:border-primary/50 focus:outline-none",
+                  "transition-all shadow-inner disabled:opacity-50 disabled:cursor-not-allowed",
+                  "text-[16px] sm:text-sm resize-y"
+                )}
+              />
+              <p className="text-xs text-text-muted mt-1">
+                {(settings.softErrorPhrases || []).length}/50 phrases · Max 200 chars each
+              </p>
             </div>
 
             <p className="text-xs text-text-muted italic pt-2 border-t border-border/50">
