@@ -1,4 +1,5 @@
 import { ERROR_RULES, BACKOFF_CONFIG, TRANSIENT_COOLDOWN_MS } from "../config/errorConfig.js";
+import { isSoftErrorPhraseFailure } from "@/fork/softErrorPhrase/error";
 import { buildTtftFallbackResult, isTtftTimeoutError } from "@/fork/ttft/error";
 
 /**
@@ -28,6 +29,10 @@ export function checkFallbackError(status, errorText, backoffLevel = 0, options 
 
   if (isTtftTimeoutError(lowerError)) {
     return buildTtftFallbackResult(options);
+  }
+
+  if (isSoftErrorPhraseFailure(lowerError)) {
+    return { shouldFallback: true, cooldownMs: 0 };
   }
 
   for (const rule of ERROR_RULES) {
