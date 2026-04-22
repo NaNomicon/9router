@@ -5,6 +5,7 @@ import path from "node:path";
 import fs from "node:fs";
 import lockfile from "proper-lockfile";
 import { normalizeDisabledModels } from "@/fork/providerModelDisable/state";
+import { SOFT_ERROR_PHRASE_SETTINGS_DEFAULTS, getSoftErrorPhraseSettings } from "@/fork/softErrorPhrase/settings";
 import { TTFT_SETTINGS_DEFAULTS } from "@/fork/ttft/settings";
 import { DATA_DIR } from "@/lib/dataDir.js";
 
@@ -38,8 +39,16 @@ const DEFAULT_SETTINGS = {
   outboundProxyUrl: "",
   outboundNoProxy: "",
   mitmRouterBaseUrl: DEFAULT_MITM_ROUTER_BASE,
+  ...SOFT_ERROR_PHRASE_SETTINGS_DEFAULTS,
   ...TTFT_SETTINGS_DEFAULTS,
 };
+
+function normalizeSettings(settings = {}) {
+  return {
+    ...settings,
+    ...getSoftErrorPhraseSettings(settings),
+  };
+}
 
 function cloneDefaultData() {
   return {
@@ -93,6 +102,12 @@ function ensureDbShape(data) {
           }
           changed = true;
         }
+      }
+
+      const normalizedSettings = normalizeSettings(next.settings);
+      if (JSON.stringify(normalizedSettings) !== JSON.stringify(next.settings)) {
+        next.settings = normalizedSettings;
+        changed = true;
       }
     }
 
@@ -758,12 +773,12 @@ export async function cleanupProviderConnections() {
 
 export async function getSettings() {
   const db = await getDb();
-  return db.data.settings || { cloudEnabled: false };
+  return normalizeSettings(db.data.settings || { cloudEnabled: false });
 }
 
 export async function updateSettings(updates) {
   const db = await getDb();
-  db.data.settings = { ...db.data.settings, ...updates };
+  db.data.settings = normalizeSettings({ ...db.data.settings, ...updates });
   await safeWrite(db);
   return db.data.settings;
 }
