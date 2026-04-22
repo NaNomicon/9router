@@ -7,6 +7,10 @@ import { HTTP_STATUS } from "../../config/runtimeConfig.js";
 import { parseSSEToOpenAIResponse } from "./sseToJsonHandler.js";
 import { buildRequestDetail, extractRequestConfig, extractUsageFromResponse, saveUsageStats } from "./requestDetail.js";
 import { appendRequestLog, saveRequestDetail } from "@/lib/usageDb.js";
+import { findSoftErrorPhraseMatch, getSoftErrorVisibleTextContext } from "@/fork/softErrorPhrase/detect";
+import { buildSoftErrorPhraseFailure } from "@/fork/softErrorPhrase/error";
+import { getSoftErrorPhraseSettings } from "@/fork/softErrorPhrase/settings";
+import { getSettings } from "@/lib/localDb";
 
 /**
  * Translate non-streaming response body from provider format → OpenAI format.
@@ -150,16 +154,42 @@ export async function handleNonStreamingResponse({ providerResponse, provider, m
     }
   }
 
+  const translatedResponse = needsTranslation(targetFormat, sourceFormat)
+    ? translateNonStreamingResponse(responseBody, targetFormat, sourceFormat)
+    : responseBody;
+
   reqLogger.logProviderResponse(providerResponse.status, providerResponse.statusText, providerResponse.headers, responseBody);
+
+  const settings = await getSettings();
+  const { softErrorPhrases } = getSoftErrorPhraseSettings(settings);
+  const visibleText = getSoftErrorVisibleTextContext(translatedResponse);
+  const phraseMatch = visibleText.eligible
+    ? findSoftErrorPhraseMatch(visibleText.text, softErrorPhrases)
+    : { matched: false, phrase: null, normalizedPhrase: null };
+
+  if (phraseMatch.matched) {
+    const failure = buildSoftErrorPhraseFailure(phraseMatch, { provider, model });
+    appendLog({ status: `FAILED ${HTTP_STATUS.BAD_GATEWAY}` });
+    saveRequestDetail(buildRequestDetail({
+      provider, model, connectionId,
+      latency: { ttft: Date.now() - requestStartTime, total: Date.now() - requestStartTime },
+      tokens: { prompt_tokens: 0, completion_tokens: 0 },
+      request: extractRequestConfig(body, stream),
+      providerRequest: finalBody || translatedBody || null,
+      providerResponse: responseBody || null,
+      response: { error: failure.message, status: HTTP_STATUS.BAD_GATEWAY, thinking: null },
+      status: "error"
+    }, { endpoint: clientRawRequest?.endpoint || null })).catch(err => {
+      console.error("[RequestDetail] Failed to save:", err.message);
+    });
+    return createErrorResult(HTTP_STATUS.BAD_GATEWAY, failure.message);
+  }
+
   if (onRequestSuccess) await onRequestSuccess();
 
   const usage = extractUsageFromResponse(responseBody);
   appendLog({ tokens: usage, status: "200 OK" });
   saveUsageStats({ provider, model, tokens: usage, connectionId, apiKey, endpoint: clientRawRequest?.endpoint });
-
-  const translatedResponse = needsTranslation(targetFormat, sourceFormat)
-    ? translateNonStreamingResponse(responseBody, targetFormat, sourceFormat)
-    : responseBody;
 
   // Fix finish_reason for tool_calls: some providers return non-standard values (e.g. "other")
   if (translatedResponse?.choices?.[0]) {

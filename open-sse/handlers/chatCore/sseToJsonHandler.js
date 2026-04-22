@@ -4,6 +4,10 @@ import { HTTP_STATUS } from "../../config/runtimeConfig.js";
 import { FORMATS } from "../../translator/formats.js";
 import { buildRequestDetail, extractRequestConfig, saveUsageStats } from "./requestDetail.js";
 import { saveRequestDetail, appendRequestLog } from "@/lib/usageDb.js";
+import { findSoftErrorPhraseMatch, getSoftErrorVisibleTextContext } from "@/fork/softErrorPhrase/detect";
+import { buildSoftErrorPhraseFailure } from "@/fork/softErrorPhrase/error";
+import { getSoftErrorPhraseSettings } from "@/fork/softErrorPhrase/settings";
+import { getSettings } from "@/lib/localDb";
 
 function textFromResponsesMessageItem(item) {
   if (!item?.content || !Array.isArray(item.content)) return "";
@@ -116,13 +120,23 @@ export async function handleForcedSSEToJson({ providerResponse, sourceFormat, pr
   if (isCodexResponsesApi) {
     try {
       const jsonResponse = await convertResponsesStreamToJson(providerResponse.body);
+      const { msgItem, textContent } = pickAssistantMessageForChatCompletion(jsonResponse.output);
+      const settings = await getSettings();
+      const { softErrorPhrases } = getSoftErrorPhraseSettings(settings);
+      const phraseMatch = findSoftErrorPhraseMatch(textContent || "", softErrorPhrases);
+
+      if (phraseMatch.matched) {
+        const failure = buildSoftErrorPhraseFailure(phraseMatch, { provider, model });
+        appendLog({ status: `FAILED ${HTTP_STATUS.BAD_GATEWAY}` });
+        return createErrorResult(HTTP_STATUS.BAD_GATEWAY, failure.message);
+      }
+
       if (onRequestSuccess) await onRequestSuccess();
 
       const usage = jsonResponse.usage || {};
       appendLog({ tokens: usage, status: "200 OK" });
       saveUsageStats({ provider, model, tokens: usage, connectionId, apiKey, endpoint: clientRawRequest?.endpoint });
 
-      const { msgItem, textContent } = pickAssistantMessageForChatCompletion(jsonResponse.output);
       const totalLatency = Date.now() - requestStartTime;
 
       saveRequestDetail(buildRequestDetail({
@@ -190,6 +204,19 @@ export async function handleForcedSSEToJson({ providerResponse, sourceFormat, pr
     const sseText = await providerResponse.text();
     const parsed = parseSSEToOpenAIResponse(sseText, model);
     if (!parsed) return createErrorResult(HTTP_STATUS.BAD_GATEWAY, "Invalid SSE response for non-streaming request");
+
+    const settings = await getSettings();
+    const { softErrorPhrases } = getSoftErrorPhraseSettings(settings);
+    const visibleText = getSoftErrorVisibleTextContext(parsed);
+    const phraseMatch = visibleText.eligible
+      ? findSoftErrorPhraseMatch(visibleText.text, softErrorPhrases)
+      : { matched: false, phrase: null, normalizedPhrase: null };
+
+    if (phraseMatch.matched) {
+      const failure = buildSoftErrorPhraseFailure(phraseMatch, { provider, model });
+      appendLog({ status: `FAILED ${HTTP_STATUS.BAD_GATEWAY}` });
+      return createErrorResult(HTTP_STATUS.BAD_GATEWAY, failure.message);
+    }
 
     if (onRequestSuccess) await onRequestSuccess();
 
