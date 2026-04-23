@@ -38,7 +38,11 @@ const DEFAULT_SETTINGS = {
   outboundProxyUrl: "",
   outboundNoProxy: "",
   mitmRouterBaseUrl: DEFAULT_MITM_ROUTER_BASE,
+
+
+  rtkEnabled: false,
   ...TTFT_SETTINGS_DEFAULTS,
+
 };
 
 function cloneDefaultData() {
@@ -536,7 +540,7 @@ export async function updateProviderDisabledModels(providerId, disabledModels) {
   return updatedCount;
 }
 
-// ============ Model Aliases ============
+// ===== Model Aliases =====
 
 /**
  * Get all model aliases
