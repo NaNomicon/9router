@@ -287,7 +287,7 @@ export function createSSEStream(options = {}) {
           }
 
           emitOutput(controller, output);
-          markDeferredSuccess();
+          // Do NOT mark success here - wait until flush completes without soft-error
           continue;
         }
 
@@ -422,6 +422,9 @@ export function createSSEStream(options = {}) {
           reqLogger?.appendConvertedChunk?.(doneOutput);
           controller.enqueue(sharedEncoder.encode(doneOutput));
 
+          // Mark success only after stream completes without soft-error
+          markDeferredSuccess();
+
           if (onStreamComplete) {
             onStreamComplete({
               content: accumulatedContent,
@@ -478,18 +481,32 @@ export function createSSEStream(options = {}) {
 
         const heldTail = getSoftErrorTailText(guardState);
         if (heldTail) {
-          // Build a format-appropriate tail chunk for the held text
-          const tailItem = rebuildItemWithText(
-            {
+          // Build format-appropriate tail chunk for the held text
+          let tailItem;
+          if (sourceFormat === FORMATS.CLAUDE) {
+            tailItem = {
+              type: "content_block_delta",
+              index: 0,
+              delta: { type: "text_delta", text: heldTail }
+            };
+          } else if (sourceFormat === FORMATS.ANTIGRAVITY || sourceFormat === FORMATS.GEMINI || sourceFormat === FORMATS.GEMINI_CLI || sourceFormat === FORMATS.VERTEX) {
+            tailItem = {
+              response: {
+                candidates: [{
+                  content: { role: "model", parts: [{ text: heldTail }] }
+                }]
+              }
+            };
+          } else {
+            // OpenAI and other formats: use OpenAI chunk shape
+            tailItem = {
               id: `chatcmpl-${Date.now()}`,
               object: "chat.completion.chunk",
               created: Math.floor(Date.now() / 1000),
               model,
               choices: [{ index: 0, delta: { content: heldTail } }],
-            },
-            heldTail,
-            sourceFormat
-          );
+            };
+          }
           emitOutput(controller, formatSSE(tailItem, sourceFormat));
           markDeferredSuccess();
         }

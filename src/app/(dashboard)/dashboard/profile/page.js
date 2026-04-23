@@ -305,7 +305,7 @@ export default function ProfilePage() {
       const res = await fetch("/api/settings");
       if (!res.ok) return;
       const data = await res.json();
-      setSettings({ ...data, ...getTtftSettings(data) });
+      setSettings({ ...data, ...getTtftSettings(data), ...getSoftErrorPhraseSettings(data) });
     } catch (err) {
       console.error("Failed to reload settings:", err);
     }
